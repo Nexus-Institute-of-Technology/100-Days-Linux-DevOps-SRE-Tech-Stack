@@ -1,0 +1,322 @@
+# 4.0 Setting Up Jenkins Server
+
+**NIT Academy | DevOps CI/CD Project — Lesson 4**  
+**Topic:** Deploying Jenkins on an AWS EC2 Linux instance
+
+> **Course context:** This lesson organizes the supplied lecture into a practical student guide. The lecture demonstrates **Amazon Linux 2**, **Java 11**, `amazon-linux-extras`, and a `t2.micro` instance. Those are **historical lab choices**, not guaranteed to work with current Jenkins releases or current AWS Free Tier eligibility. A current-installation checklist is included separately so students do not mistake the older commands for universal instructions.
+
+## 🎯 Learning Objectives
+
+After completing this lesson, students should be able to:
+
+1. Explain why Jenkins requires Java and why an EC2 instance is used.
+2. Launch and identify a Linux EC2 instance on AWS.
+3. Configure an SSH key pair and an EC2 security group.
+4. Connect to the instance using MobaXterm, PuTTY, or an SSH client.
+5. Describe the lecture's Java and Jenkins installation process.
+6. Start Jenkins and check its service status.
+7. Access Jenkins through its web interface on port **8080**.
+8. Complete the initial Jenkins unlock and administrative setup securely.
+
+## 1. Introduction: What Are We Building?
+
+Jenkins is a Java-based automation server used to build, test, and deploy software. In our DevOps project, Jenkins will eventually integrate with **GitHub**, **Git**, **Maven**, **Tomcat**, and later **Docker**, **Ansible**, and **Kubernetes**.
+
+For this lecture, we are only preparing the Jenkins server.
+
+```text
+Student Laptop (MobaXterm / SSH / Browser)
+                    |
+              Internet / VPC
+                    |
+        AWS EC2 Security Group
+         SSH 22   |   Jenkins 8080
+                    |
+           Linux EC2 Instance
+                    |
+              Java Runtime
+                    |
+             Jenkins Server
+                    |
+           Jenkins Web Interface
+```
+
+**Core sequence:** Launch EC2 → Connect with SSH → Install Java → Install Jenkins → Start Jenkins → Open Web UI → Unlock and configure Jenkins.
+
+## 2. Prerequisites
+
+- An AWS account with permission to launch EC2 instances and create security groups and key pairs.
+- A computer with MobaXterm, PuTTY, OpenSSH, or another SSH client.
+- A browser for accessing the Jenkins dashboard.
+- A private key (`.pem`) saved securely.
+- A plan for AWS charges: EC2, EBS storage, public IPv4 addresses, and data transfer may incur costs.
+
+### Before launching: choose the operating system
+
+**In the supplied lecture:** Amazon Linux 2 AMI is selected to match the instructor's commands. The lecture also chooses `t2.micro` and an 8 GB general-purpose disk.
+
+**For a new lab:** Verify the current Jenkins-supported Java version and supported Linux distributions before selecting an AMI. Do **not** assume that `t2.micro` is free or that 8 GB is sufficient for a usable Jenkins installation with plugins and builds. A larger instance and disk may be necessary.
+
+## 3. Launch the EC2 Instance
+
+1. Sign in to the **AWS Management Console**.
+2. Search for **EC2** and open the EC2 dashboard.
+3. Select **Launch instance**.
+4. Enter a descriptive instance name, such as `Jenkins-Server`.
+5. Select a Linux AMI. The **lecture uses Amazon Linux 2**.
+6. Select an instance type. The **lecture uses `t2.micro`**; check current pricing and memory needs.
+7. Review network and instance settings.
+8. Configure EBS storage. The **lecture uses 8 GB**, but a larger volume is recommended for most modern labs.
+9. Add a `Name` tag such as `Jenkins-Server`.
+10. Create or select an EC2 security group.
+11. Create or select a key pair, download the private key, and launch the instance.
+12. Wait until the instance state is **Running** and its status checks pass.
+
+### Security group: inbound rules
+
+| Purpose | Protocol | Port | Recommended source |
+|---|---|---:|---|
+| SSH administration | TCP | 22 | Your public IP `/32` |
+| Jenkins web UI | TCP | 8080 | Your public IP `/32` for a temporary lab |
+
+> **Security note:** Do not open SSH or an unauthenticated Jenkins setup page to the entire internet (`0.0.0.0/0`) unless there is a compelling, controlled reason. For production, place Jenkins behind a secured HTTPS reverse proxy or private access path, with appropriate authentication and network restrictions.
+
+### Key pair
+
+The lecture creates a new key pair called `DevOps Project key` and downloads a `.pem` file. The private key authenticates SSH connections to the EC2 instance. Keep it private; AWS does not let you download the same private key again after creation.
+
+## 4. Connect to EC2 Using SSH
+
+1. Select the running EC2 instance.
+2. Copy its **Public IPv4 address** or public DNS name.
+3. Open **MobaXterm** → **Session** → **SSH**.
+4. Enter the EC2 host address.
+5. Set the remote username to `ec2-user` for the Amazon Linux AMI used in the lecture.
+6. In advanced SSH settings, select the downloaded `.pem` private key.
+7. Connect and confirm the host key when you have verified its identity.
+
+**Alternative OpenSSH example:**
+
+```bash
+chmod 400 ~/keys/devops-project-key.pem
+ssh -i ~/keys/devops-project-key.pem ec2-user@<EC2_PUBLIC_IP>
+```
+
+Replace the placeholder with your actual public IP. On Windows, private-key permissions and path syntax differ.
+
+### Become an administrator
+
+The instructor switches to root before installing packages:
+
+```bash
+sudo su -
+pwd
+```
+
+The working directory should normally be `/root` after switching to root. For most administration tasks, using individual `sudo` commands is safer than keeping an unrestricted root shell open.
+
+## 5. Install Java: Jenkins Prerequisite
+
+Jenkins is a Java application, so a supported Java runtime must be installed before Jenkins starts.
+
+### Historical commands shown in the lecture (Amazon Linux 2)
+
+The instructor checks Java:
+
+```bash
+java -version
+```
+
+The lecture then explores Amazon Linux Extras and installs EPEL and OpenJDK 11:
+
+```bash
+amazon-linux-extras list
+sudo amazon-linux-extras install epel
+sudo amazon-linux-extras install java-openjdk11
+java -version
+```
+
+**Important compatibility warning:** These commands reflect the older Amazon Linux 2 environment described in the transcript. `amazon-linux-extras` is not the installation mechanism on Amazon Linux 2023 or Rocky Linux 9. Also, **Java 11 is not sufficient for current Jenkins releases**. Check the current Jenkins Java support policy and install a supported version before continuing.
+
+### Current-version verification checklist
+
+Before installing Jenkins on a new EC2 server:
+
+1. Identify the operating system with `cat /etc/os-release`.
+2. Review the current official Jenkins Linux installation instructions at <https://www.jenkins.io/doc/book/installing/linux/>.
+3. Install the Java version required by that Jenkins release.
+4. Verify `java -version` before starting Jenkins.
+
+## 6. Add the Jenkins Repository and Install Jenkins
+
+In the lecture, the instructor opens the official Jenkins download page and selects the stable/LTS release for a Red Hat-family Linux system.
+
+**Official source:** <https://www.jenkins.io/download/>
+
+The sequence in the lecture is:
+
+1. Open the Jenkins download/install instructions.
+2. Add the Jenkins package repository.
+3. Import the repository signing key.
+4. Install the required Java runtime.
+5. Install the `jenkins` package.
+
+The instructor uses:
+
+```bash
+yum install jenkins
+```
+
+**Do not run this command until the correct, currently supported Jenkins repository and signing key have been configured.** The transcript refers to copying repository commands from the Jenkins website but does not provide their exact text; this lesson intentionally does not invent them.
+
+> **Clarification:** The lecture suggests EPEL is required to install Jenkins. That is not a universal requirement. Follow the official instructions for your chosen distribution and Jenkins release.
+
+## 7. Start and Verify Jenkins
+
+The lecture checks the Jenkins service, finds it inactive, and starts it:
+
+```bash
+service jenkins status
+service jenkins start
+service jenkins status
+```
+
+On a modern systemd-based Linux distribution, use:
+
+```bash
+sudo systemctl enable --now jenkins
+sudo systemctl status jenkins --no-pager
+```
+
+If Jenkins does not start, inspect the service logs:
+
+```bash
+sudo journalctl -u jenkins -n 100 --no-pager
+```
+
+Common causes include an unsupported Java version, a failed installation, insufficient memory, or port 8080 already being in use.
+
+## 8. Access the Jenkins Web Interface
+
+The lecture uses Jenkins's default HTTP port, **8080**. Open:
+
+```text
+http://<EC2_PUBLIC_IP>:8080
+```
+
+Before browsing, confirm:
+
+- EC2 is running and reachable.
+- Jenkins service is active.
+- The EC2 security group allows TCP 8080 from your IP.
+- Any operating-system firewall allows the connection.
+
+For a temporary training lab, restrict 8080 to your IP. For real deployments, prefer HTTPS and private or controlled access.
+
+## 9. Unlock Jenkins and Complete Initial Setup
+
+On first launch, Jenkins normally displays an **Unlock Jenkins** page requesting an initial administrator password. On a standard Linux package installation, it is typically stored at:
+
+```bash
+sudo cat /var/lib/jenkins/secrets/initialAdminPassword
+```
+
+Copy the password into the browser to unlock Jenkins. **Never paste this password into public screenshots, tickets, or Git repositories.**
+
+The lecture shows options to install suggested plugins or customize plugins, and the instructor skips parts of setup. For students, the recommended lab workflow is:
+
+1. Install the **suggested plugins** or a deliberate minimal set needed for the course.
+2. Create a **named administrator account** with a strong password.
+3. Configure the Jenkins URL.
+4. Confirm access to the Jenkins dashboard.
+5. Keep Jenkins and plugins updated.
+
+**Avoid skipping the admin-user setup** in an internet-reachable deployment. The instructor's skipped setup is a historical demonstration, not a security recommendation.
+
+## 10. End-to-End Lab Checklist
+
+- [ ] AWS EC2 instance launched successfully.
+- [ ] Instance name/tag is `Jenkins-Server`.
+- [ ] Key pair created and private key stored securely.
+- [ ] Security group restricts SSH (22) and Jenkins (8080) to authorized IPs.
+- [ ] SSH connection works with `ec2-user` (Amazon Linux).
+- [ ] Linux distribution and supported Java version verified.
+- [ ] Jenkins repository configured from official instructions.
+- [ ] Jenkins installed and running.
+- [ ] Jenkins dashboard reachable through the browser.
+- [ ] Initial administrator password used to unlock Jenkins.
+- [ ] Admin account and appropriate plugins configured.
+
+## 11. Troubleshooting
+
+| Symptom | Likely cause | What to check |
+|---|---|---|
+| SSH connection times out | Network/security group issue | EC2 public IP, route, inbound TCP 22, your IP |
+| SSH permission denied | Wrong username or private key | `ec2-user`, key pair, key permissions |
+| `java: command not found` | Java not installed | Install supported Java; check `java -version` |
+| `jenkins` package not found | Repository missing/incorrect | Official Jenkins repository instructions |
+| Jenkins fails to start | Java mismatch or service issue | `systemctl status`, `journalctl -u jenkins` |
+| Browser cannot reach port 8080 | Service or firewall issue | Jenkins status, security group, firewall |
+| Initial password missing | First-run state or wrong path | Jenkins logs and package-specific documentation |
+| Jenkins becomes slow or stops | Insufficient EC2 resources | Memory, disk space, CPU, service logs |
+
+## 12. Classroom Exercise
+
+**Exercise A — Explain the architecture:** Draw a diagram connecting your laptop, the AWS security group, EC2, Java, Jenkins, and the browser. Label ports 22 and 8080.
+
+**Exercise B — Server verification:** On your own EC2 instance, record the outputs of:
+
+```bash
+cat /etc/os-release
+java -version
+sudo systemctl status jenkins --no-pager
+```
+
+**Exercise C — Security review:** Explain why opening port 8080 to every IP is dangerous during initial Jenkins setup. Propose a safer inbound rule.
+
+**Exercise D — Reflection:** Describe what additional tools Jenkins will integrate with in later DevOps lessons: GitHub, Maven, Tomcat, Docker, Ansible, and Kubernetes.
+
+## 🧪 Knowledge Check
+
+1. Why does Jenkins require Java?
+2. What is an EC2 AMI?
+3. What is the difference between an EC2 instance type and an EBS volume?
+4. What is the purpose of an EC2 key pair?
+5. Why is port 22 used? Why is port 8080 used?
+6. Which SSH username is used for the Amazon Linux AMI in this lecture?
+7. What command checks Jenkins service status on systemd Linux?
+8. Where is the initial Jenkins administrator password commonly stored?
+9. Why should students verify the supported Java version rather than blindly installing Java 11?
+10. Why should the initial Jenkins setup not be exposed publicly?
+
+## 📌 Quick Revision
+
+| Component | Purpose |
+|---|---|
+| AWS EC2 | Cloud-hosted virtual Linux server |
+| AMI | Operating system and initial machine image |
+| Instance type | CPU/memory capacity profile |
+| EBS | Persistent block storage for EC2 |
+| Security group | Network access control for EC2 |
+| SSH key pair | Secure SSH authentication |
+| Java | Runtime required by Jenkins |
+| Jenkins | CI/CD automation server |
+| Port 22 | SSH administration |
+| Port 8080 | Default Jenkins web interface |
+| `systemctl` | Manage the Jenkins service |
+
+## 📖 Key Takeaways
+
+- Jenkins needs a supported Java runtime and a Linux server in this AWS lab.
+- EC2 security groups control who can reach SSH and Jenkins.
+- Installing a package is not the same as starting its service.
+- Jenkins's initial web setup includes unlocking the server and creating a secure administrator account.
+- The lecture's Amazon Linux 2, Java 11, `t2.micro`, and EPEL steps are version-specific and should not be treated as current universal defaults.
+
+## ⭐ Golden Rule
+
+**Secure the server first, install a supported Java runtime, then install and configure Jenkins using the official instructions for your Linux distribution.**
+
+---
+
+**Next lesson:** Running Your First Jenkins Job.
